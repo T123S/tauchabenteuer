@@ -3,401 +3,522 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
-    
+    <!-- Verknüpfung zum Manifest für Vollbild auf Handys -->
     <link rel="manifest" href="manifest.json">
-    
-    <title>Deep Dive: Gyro Hunter</title>
+    <title>Deep Dive: Tropical Edition</title>
     <style>
-        body { margin: 0; overflow: hidden; background-color: #001e36; font-family: 'Courier New', Courier, monospace; user-select: none; -webkit-user-select: none; }
+        /* --- UI DESIGN --- */
+        body { margin: 0; overflow: hidden; background-color: #006994; font-family: 'Courier New', Courier, monospace; user-select: none; }
         
-        /* UI Layer (HUD) */
+        /* HUD (Head Up Display) */
         #ui-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 5; }
         
-        #score-board { 
-            position: absolute; top: 20px; left: 20px; 
-            color: #fff; font-size: 20px; font-weight: bold; 
-            text-shadow: 2px 2px 0 #000; 
+        #top-bar { 
+            position: absolute; top: 20px; left: 20px; right: 20px; 
+            display: flex; justify-content: space-between;
+            color: #ffffff; font-weight: bold; text-shadow: 2px 2px 0px #004466; font-size: 20px;
         }
 
-        /* Sauerstoff Balken */
-        #oxygen-wrapper {
-            position: absolute; left: 20px; bottom: 20px;
-            width: 30px; height: 30vh;
-            border: 2px solid white; background: rgba(0,0,0,0.5);
-            border-radius: 5px;
+        /* Sauerstoff Anzeige */
+        #oxygen-wrapper { 
+            position: absolute; right: 20px; bottom: 20px; width: 40px; height: 200px; 
+            border: 3px solid #fff; background: rgba(0,0,0,0.3); border-radius: 10px; overflow: hidden;
+            box-shadow: 0 0 15px rgba(255, 255, 255, 0.5);
         }
         #oxygen-bar { 
             width: 100%; height: 100%; 
-            background: linear-gradient(to top, #ff3333, #ffff33, #33ffff); 
-            transform-origin: bottom; transition: height 0.2s linear; 
+            background: linear-gradient(to top, #ff3333 0%, #ffaa00 40%, #00ffaa 100%); 
+            transition: height 0.2s ease-out; 
         }
-        #oxygen-label {
-            position: absolute; left: 60px; bottom: 20px;
-            color: #33ffff; font-weight: bold; font-size: 24px;
-            text-shadow: 2px 2px 0 #000;
+        #oxygen-icon { 
+            position: absolute; right: 70px; bottom: 20px; 
+            color: #00ffaa; font-size: 24px; font-weight: bold; text-shadow: 2px 2px 0 #004466;
         }
 
-        /* Start / Game Over Screen */
+        /* Warn-Effekt bei wenig Luft */
+        #low-oxygen-overlay {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: none; opacity: 0;
+            box-shadow: inset 0 0 100px red;
+            transition: opacity 0.5s;
+            z-index: 4;
+            animation: pulseWarning 1s infinite alternate;
+        }
+        @keyframes pulseWarning { from { opacity: 0.3; } to { opacity: 0.6; } }
+
+        /* Menü Screens */
         #menu-screen { 
             position: absolute; top: 0; left: 0; width: 100%; height: 100%; 
-            background: rgba(0, 20, 40, 0.95); 
-            display: flex; flex-direction: column; 
-            align-items: center; justify-content: center; 
-            color: white; pointer-events: auto; z-index: 10;
-            text-align: center;
+            background: linear-gradient(to bottom, #0088aa, #004466); 
+            display: flex; flex-direction: column; align-items: center; justify-content: center; 
+            color: white; pointer-events: auto; z-index: 10; text-align: center;
         }
         
-        h1 { margin-bottom: 10px; font-size: 3rem; color: #00d2ff; text-shadow: 0 0 10px #00d2ff; }
-        p { font-size: 1.2rem; line-height: 1.5; color: #ccc; max-width: 80%; }
+        h1 { font-size: 3.5rem; color: #ccffff; text-shadow: 0 0 20px #00ffff; margin: 0; letter-spacing: 5px; }
+        h2 { font-size: 1.2rem; color: #aaffff; margin-bottom: 30px; font-weight: normal; }
         
+        .instruction-box {
+            background: rgba(0, 50, 80, 0.6); padding: 20px; border-radius: 10px;
+            margin-bottom: 20px; max-width: 80%; border: 1px solid #00ffff;
+            backdrop-filter: blur(5px);
+        }
+        
+        .feature-list { text-align: left; font-size: 0.9rem; margin-top: 10px; color: #e0ffff; }
+
         button { 
-            margin-top: 30px; padding: 20px 40px; 
-            font-size: 1.5rem; font-weight: bold; 
-            background: #ff9900; color: #000; border: none; border-radius: 50px; 
-            cursor: pointer; box-shadow: 0 0 20px rgba(255, 153, 0, 0.6);
-            transition: transform 0.1s;
+            padding: 15px 50px; font-size: 1.5rem; font-weight: bold; 
+            background: #ffaa00; color: #ffffff; border: 2px solid #fff; border-radius: 50px; 
+            cursor: pointer; box-shadow: 0 0 20px rgba(255, 170, 0, 0.6); 
+            transition: transform 0.1s; text-transform: uppercase; text-shadow: 1px 1px 0 #cc8800;
         }
         button:active { transform: scale(0.95); }
 
-        /* Warnung für Landscape Modus */
-        #orientation-warning {
-            display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            background: #000; z-index: 20; color: white;
-            align-items: center; justify-content: center; text-align: center;
-        }
+        #status-msg { margin-top:15px; color:#aaffff; font-size:0.8rem; }
     </style>
 </head>
 <body>
 
+    <div id="low-oxygen-overlay" style="display:none"></div>
+
+    <!-- HUD -->
     <div id="ui-layer">
-        <div id="score-board">Fische: 0 | Score: 0</div>
+        <div id="top-bar">
+            <span id="score-display">SCORE: 0</span>
+            <span id="depth-display">TIEFE: 0m</span>
+        </div>
         <div id="oxygen-wrapper"><div id="oxygen-bar"></div></div>
-        <div id="oxygen-label">O₂</div>
+        <div id="oxygen-icon">O₂</div>
     </div>
 
+    <!-- Menü -->
     <div id="menu-screen">
-        <h1 id="menu-title">DEEP DIVE</h1>
-        <p id="menu-msg">
-            Halte das Handy quer.<br>
-            Neige es zum Lenken.<br>
-            Tippe für TURBO.<br>
-            <span style="color:#ff3333">Komm zurück zum Boot bevor die Luft ausgeht!</span>
-        </p>
-        <button id="start-btn">TAUCHEN</button>
-        <p style="font-size: 0.8rem; margin-top:20px; color:#666" id="loading-status">Lade Konfiguration...</p>
+        <h1>DEEP DIVE</h1>
+        <h2>TROPICAL EDITION</h2>
+        
+        <div class="instruction-box">
+            <p>🌊 <b>PC:</b> Maus bewegen (Hoch = Abtauchen)</p>
+            <p>📱 <b>Handy:</b> Gerät neigen</p>
+            <div class="feature-list">
+                • Sammle <b style="color:#00ffff">O₂ Blasen</b> zum Überleben!<br>
+                • Fange bunte Fische für Punkte.<br>
+                • Kehre zum Boot zurück um zu gewinnen.
+            </div>
+        </div>
+
+        <button id="start-btn">ABTAUCHEN</button>
+        <p id="status-msg">Lade Riff-Systeme...</p>
     </div>
 
+    <!-- Three.js Library -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 
     <script>
-        // --- FALLBACK DATEN (Falls data.json nicht lädt) ---
+        // --- BALANCE UPDATES ---
         const FALLBACK_CONFIG = {
-            gameConfig: { maxOxygen: 100, depletionRate: 5.0, turboCost: 15.0, fishCount: 20 },
+            gameConfig: { 
+                maxOxygen: 100, 
+                depletionRate: 1.5, 
+                turboCost: 5.0,    
+                fishCount: 50, 
+                bubbleCount: 20,    
+                maxDepth: 120 
+            },
             fishTypes: [
-                { color: 0xff7f50, score: 10, scale: 0.5 },
-                { color: 0xffd700, score: 50, scale: 0.8 }
+                { name: "Clownfisch", color: 0xff7f50, score: 10, scale: 0.6, minDepth: 2, maxDepth: 40, speed: 2 },
+                { name: "Doktorfisch", color: 0x4488ff, score: 30, scale: 0.8, minDepth: 10, maxDepth: 60, speed: 2.5 },
+                { name: "Goldmakrele", color: 0xffd700, score: 50, scale: 1.0, minDepth: 40, maxDepth: 90, speed: 3.5 },
+                { name: "Tiefsee-Neon", color: 0xff00ff, score: 150, scale: 1.5, minDepth: 90, maxDepth: 120, speed: 1.5, emissive: true }
             ]
         };
 
-        // --- GLOBALE VARIABLEN ---
-        let CONFIG = null; // Wird aus JSON geladen
+        // Variablen
+        let CONFIG = FALLBACK_CONFIG;
         let scene, camera, renderer, clock;
-        let player, boat;
-        let fishes = []; // Array für Fisch-Objekte
+        let playerGroup, spotlight; 
+        let fishes = [];
+        let bubbles = []; 
         let isPlaying = false;
         
-        // Game State
+        // Stats
         let oxygen = 100;
         let score = 0;
-        let fishCount = 0;
+        let depth = 0;
         
-        // Steuerung
-        let deviceInput = { beta: 0, gamma: 0 }; // Neigung
+        // Input
+        let input = { x: 0, y: 0 }; 
         let isTurbo = false;
 
-        // --- 1. LADEN DER DATEN ---
+        // --- 1. SETUP ---
         window.addEventListener('load', async () => {
-            const status = document.getElementById('loading-status');
             try {
-                const response = await fetch('data.json');
-                if (!response.ok) throw new Error("JSON nicht gefunden");
-                const data = await response.json();
-                
-                // Konvertiere Hex-Strings zu Zahlen falls nötig (Three.js mag 0xff0000 oder Integers)
-                // Hier gehen wir davon aus, dass im JSON normale Zahlen oder Strings stehen.
-                CONFIG = data;
-                status.innerText = "Daten geladen. Bereit.";
-                console.log("Config geladen:", CONFIG);
-            } catch (error) {
-                console.warn("Fehler beim Laden der data.json (CORS oder fehlt). Nutze Fallback.", error);
-                CONFIG = FALLBACK_CONFIG;
-                status.innerText = "Offline-Modus aktiv.";
+                const res = await fetch('data.json');
+                if(res.ok) {
+                    const loadedConfig = await res.json();
+                    if(!loadedConfig.gameConfig.bubbleCount) loadedConfig.gameConfig.bubbleCount = 20;
+                    CONFIG = loadedConfig;
+                    document.getElementById('status-msg').innerText = "Konfiguration geladen.";
+                } else {
+                    throw new Error("JSON missing");
+                }
+            } catch(e) {
+                document.getElementById('status-msg').innerText = "Vorschau-Modus (Tropical).";
             }
 
-            // Button aktivieren
-            document.getElementById('start-btn').addEventListener('click', requestGyroPermission);
+            initThree();
             
-            // 3D Setup vorbereiten
-            initThreeJS();
+            // Start Button
+            document.getElementById('start-btn').addEventListener('click', () => {
+                requestGyro();
+            });
         });
 
-        // --- 2. THREE.JS SETUP ---
-        function initThreeJS() {
+        function initThree() {
             scene = new THREE.Scene();
-            scene.background = new THREE.Color(0x001e36);
-            scene.fog = new THREE.FogExp2(0x001e36, 0.015); // Unterwasser Nebel
+            // Helleres Tropen-Blau
+            const waterColor = 0x006994;
+            scene.background = new THREE.Color(waterColor);
+            // Weniger dichter Nebel für mehr Sichtweite
+            scene.fog = new THREE.FogExp2(waterColor, 0.008);
 
-            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 200);
+            camera = new THREE.PerspectiveCamera(70, window.innerWidth/window.innerHeight, 0.1, 250);
 
             renderer = new THREE.WebGLRenderer({ antialias: true });
             renderer.setSize(window.innerWidth, window.innerHeight);
-            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); // Performance Optimierung
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            renderer.physicallyCorrectLights = true;
+            // Schatten aktivieren für mehr Tiefe (optional, aber hübsch)
+            renderer.shadowMap.enabled = true;
             document.body.appendChild(renderer.domElement);
 
-            // Lichter
-            const dirLight = new THREE.DirectionalLight(0xffffff, 1);
-            dirLight.position.set(0, 50, 0);
-            scene.add(dirLight);
-            scene.add(new THREE.AmbientLight(0x404060));
+            // Viel helleres Licht für Tag-Atmosphäre
+            const hemiLight = new THREE.HemisphereLight(0x87CEEB, 0x006994, 1.0); 
+            scene.add(hemiLight);
+            
+            const sun = new THREE.DirectionalLight(0xffffff, 2.0);
+            sun.position.set(50, 100, 50);
+            sun.castShadow = true;
+            scene.add(sun);
 
-            // Welt erstellen
             createWorld();
             
-            // Event Listeners
-            window.addEventListener('resize', onResize);
-            // Turbo Events
-            document.addEventListener('touchstart', () => isTurbo = true);
-            document.addEventListener('touchend', () => isTurbo = false);
-            document.addEventListener('mousedown', () => isTurbo = true); // PC Test
-            document.addEventListener('mouseup', () => isTurbo = false); // PC Test
+            window.addEventListener('resize', () => {
+                camera.aspect = window.innerWidth/window.innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+            });
 
-            // Desktop Maus Fallback (für Tests am PC)
+            // Maus-Steuerung
             document.addEventListener('mousemove', (e) => {
                 if(isPlaying) {
-                    // Mappe Mausposition auf Neigung (-45 bis 45 Grad)
-                    const x = (e.clientX / window.innerWidth) * 2 - 1;
-                    const y = (e.clientY / window.innerHeight) * 2 - 1;
-                    deviceInput.gamma = x * 45;
-                    deviceInput.beta = y * 45;
+                    input.y = (e.clientX / window.innerWidth) * 2 - 1; 
+                    input.x = (e.clientY / window.innerHeight) * 2 - 1; 
                 }
             });
+            
+            const startTurbo = () => isTurbo = true;
+            const endTurbo = () => isTurbo = false;
+            document.addEventListener('mousedown', startTurbo);
+            document.addEventListener('mouseup', endTurbo);
+            document.addEventListener('touchstart', startTurbo);
+            document.addEventListener('touchend', endTurbo);
 
             clock = new THREE.Clock();
             animate();
         }
 
+        // --- 2. WELT & SPIELER (ÜBERARBEITET) ---
         function createWorld() {
-            // Boot
-            const boatGeo = new THREE.BoxGeometry(6, 2, 10);
-            const boatMat = new THREE.MeshPhongMaterial({ color: 0x8b5a2b });
-            boat = new THREE.Mesh(boatGeo, boatMat);
-            boat.position.set(0, 1, 0);
-            scene.add(boat);
-
-            // Ankerkette (Visuelle Hilfe)
-            const chainGeo = new THREE.CylinderGeometry(0.1, 0.1, 80);
-            const chainMat = new THREE.MeshBasicMaterial({ color: 0x555555 });
-            const chain = new THREE.Mesh(chainGeo, chainMat);
-            chain.position.set(0, -40, 0);
-            scene.add(chain);
-
-            // Wasseroberfläche
-            const waterGeo = new THREE.PlaneGeometry(500, 500);
-            const waterMat = new THREE.MeshBasicMaterial({ color: 0x00aaff, transparent: true, opacity: 0.3, side: THREE.DoubleSide });
+            // Wasseroberfläche (Klarer und heller)
+            const waterGeo = new THREE.PlaneGeometry(800, 800);
+            const waterMat = new THREE.MeshPhongMaterial({ 
+                color: 0x00FFFF, 
+                transparent: true, 
+                opacity: 0.3, 
+                side: THREE.DoubleSide,
+                shininess: 100
+            });
             const water = new THREE.Mesh(waterGeo, waterMat);
             water.rotation.x = -Math.PI / 2;
             scene.add(water);
 
-            // Spieler (Taucher)
-            const playerGeo = new THREE.ConeGeometry(0.5, 2, 8);
-            playerGeo.rotateX(Math.PI / 2); // Hinlegen
-            const playerMat = new THREE.MeshPhongMaterial({ color: 0x00ff00, emissive: 0x002200 });
-            player = new THREE.Mesh(playerGeo, playerMat);
-            scene.add(player);
+            // Meeresboden (Sandfarben statt dunkel)
+            const bedGeo = new THREE.PlaneGeometry(400, 400, 64, 64);
+            const pos = bedGeo.attributes.position;
+            for(let i=0; i<pos.count; i++) {
+                const x = pos.getX(i);
+                const y = pos.getY(i);
+                // Sanftere Dünen
+                pos.setZ(i, Math.sin(x/30)*4 + Math.cos(y/30)*4);
+            }
+            bedGeo.computeVertexNormals();
+            const bedMat = new THREE.MeshStandardMaterial({ 
+                color: 0xEEDD82, // Heller Sand
+                roughness: 0.8 
+            });
+            const floor = new THREE.Mesh(bedGeo, bedMat);
+            floor.rotation.x = -Math.PI / 2;
+            floor.position.y = -CONFIG.gameConfig.maxDepth - 10;
+            floor.receiveShadow = true;
+            scene.add(floor);
+
+            // --- DEKORATION: Seegras ---
+            // Wir pflanzen etwas Gras auf den Boden
+            const grassGeo = new THREE.ConeGeometry(0.5, 4, 5);
+            const grassMat = new THREE.MeshLambertMaterial({ color: 0x228B22 });
+            for(let i=0; i<80; i++) {
+                const grass = new THREE.Mesh(grassGeo, grassMat);
+                const x = (Math.random()-0.5)*200;
+                const z = (Math.random()-0.5)*200;
+                // Höhe an Boden anpassen (grob geschätzt durch Sinus Funktion von oben)
+                const yOff = Math.sin(x/30)*4 + Math.cos(z/30)*4;
+                grass.position.set(x, floor.position.y + yOff + 2, z);
+                grass.rotation.z = (Math.random()-0.5)*0.5;
+                scene.add(grass);
+            }
+
+
+            // Boot (Helleres Holz)
+            const boat = new THREE.Group();
+            boat.add(new THREE.Mesh(new THREE.BoxGeometry(6,1,10), new THREE.MeshStandardMaterial({color:0xCD853F})));
+            boat.position.set(0, 0.5, 0);
+            scene.add(boat);
+            // Kette
+            const chain = new THREE.Mesh(new THREE.CylinderGeometry(0.1,0.1,80), new THREE.MeshBasicMaterial({color:0x555}));
+            chain.position.set(0,-40,0);
+            scene.add(chain);
+
+            // --- SPIELER ---
+            playerGroup = new THREE.Group();
+            
+            // Rumpf (Leuchtendes Gelb)
+            const hull = new THREE.Mesh(
+                new THREE.CylinderGeometry(0.6, 0.6, 2.2, 16),
+                new THREE.MeshStandardMaterial({ color: 0xFFD700, roughness: 0.2, metalness: 0.3 })
+            );
+            hull.rotation.x = Math.PI / 2;
+            playerGroup.add(hull);
+
+            // Glas
+            const glass = new THREE.Mesh(
+                new THREE.SphereGeometry(0.5, 16, 16, 0, Math.PI*2, 0, Math.PI/2),
+                new THREE.MeshPhongMaterial({ color: 0x87CEFA, transparent: true, opacity: 0.5, shininess: 100 })
+            );
+            glass.rotation.x = -Math.PI / 2;
+            glass.position.z = 1.1;
+            playerGroup.add(glass);
+
+            // Scheinwerfer (Weniger intensiv nötig, da Umgebung heller)
+            spotlight = new THREE.SpotLight(0xffffff, 5, 60, 0.5, 0.5, 1);
+            spotlight.position.set(0, 0, 1.2);
+            spotlight.target.position.set(0, 0, 10);
+            playerGroup.add(spotlight);
+            playerGroup.add(spotlight.target);
+
+            scene.add(playerGroup);
         }
 
-        function spawnFishes() {
-            // Alte Fische löschen
+        // --- 3. FISCHE & BLASEN ---
+        function spawnEntities() {
             fishes.forEach(f => scene.remove(f.mesh));
             fishes = [];
-
+            bubbles.forEach(b => scene.remove(b.mesh));
+            bubbles = [];
+            
+            const fishCount = CONFIG.gameConfig.fishCount;
+            const bubbleCount = CONFIG.gameConfig.bubbleCount || 20;
             const types = CONFIG.fishTypes;
-            const count = CONFIG.gameConfig.fishCount || 20;
 
-            for(let i=0; i<count; i++) {
+            // Fische spawnen
+            for(let i=0; i<fishCount; i++) {
                 const type = types[Math.floor(Math.random() * types.length)];
-                
-                // Farbe parsen (falls String im JSON)
-                let colorVal = type.color;
-                
-                const geo = new THREE.BoxGeometry(type.scale, type.scale/2, type.scale*1.5);
-                const mat = new THREE.MeshPhongMaterial({ color: colorVal });
-                const mesh = new THREE.Mesh(geo, mat);
+                const range = type.maxDepth - type.minDepth;
+                const y = -(type.minDepth + Math.random() * range);
 
-                // Positionierung
-                mesh.position.set(
-                    (Math.random() - 0.5) * 100, // X
-                    -Math.random() * 50 - 2,     // Y (Tiefe 2 bis 52)
-                    (Math.random() - 0.5) * 100  // Z
-                );
+                const fishGroup = new THREE.Group();
+                const col = type.color;
                 
-                // Zufällige Richtung
-                mesh.rotation.y = Math.random() * Math.PI * 2;
+                // Material heller machen
+                const matParams = { color: col, roughness: 0.3, metalness: 0.1 };
+                if(type.emissive) { matParams.emissive = col; matParams.emissiveIntensity = 1.5; }
+                const mat = new THREE.MeshStandardMaterial(matParams);
 
+                const body = new THREE.Mesh(new THREE.SphereGeometry(0.4, 8, 8), mat);
+                body.scale.set(1, 0.6, 0.4);
+                const tail = new THREE.Mesh(new THREE.ConeGeometry(0.3, 0.5, 8), mat);
+                tail.rotation.x = -Math.PI/2;
+                tail.position.z = -0.5;
+                
+                fishGroup.add(body);
+                fishGroup.add(tail);
+                fishGroup.scale.set(type.scale, type.scale, type.scale);
+
+                fishGroup.position.set((Math.random()-0.5)*120, y, (Math.random()-0.5)*120);
+                fishGroup.rotation.y = Math.random() * 6;
+
+                scene.add(fishGroup);
+                fishes.push({ mesh: fishGroup, type: type, active: true });
+            }
+
+            // O2 Blasen spawnen
+            const bubbleGeo = new THREE.SphereGeometry(0.5, 8, 8);
+            const bubbleMat = new THREE.MeshPhongMaterial({ 
+                color: 0xccffff, transparent: true, opacity: 0.6, shininess: 100, emissive: 0x004444 
+            });
+
+            for(let i=0; i<bubbleCount; i++) {
+                const mesh = new THREE.Mesh(bubbleGeo, bubbleMat);
+                const y = -(Math.random() * CONFIG.gameConfig.maxDepth);
+                mesh.position.set((Math.random()-0.5)*100, y, (Math.random()-0.5)*100);
                 scene.add(mesh);
-                
-                fishes.push({
-                    mesh: mesh,
-                    score: type.score,
-                    speed: (Math.random() * 2 + 1),
-                    active: true
-                });
+                bubbles.push({ mesh: mesh, active: true, speed: 0.5 + Math.random() });
             }
         }
 
-        // --- 3. GYRO PERMISSION (iOS) ---
-        function requestGyroPermission() {
+        // --- 4. GAMEPLAY ---
+        function requestGyro() {
             if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
                 DeviceOrientationEvent.requestPermission()
-                    .then(response => {
-                        if (response === 'granted') {
-                            window.addEventListener('deviceorientation', handleOrientation);
+                    .then(r => {
+                        if(r === 'granted') {
+                            window.addEventListener('deviceorientation', e => {
+                                input.x = (e.beta || 0) / 45; 
+                                input.y = (e.gamma || 0) / 45; 
+                            });
                             startGame();
-                        } else {
-                            alert("Ohne Gyro keine Steuerung! :(");
-                        }
-                    })
-                    .catch(console.error);
+                        } else alert("Gyro abgelehnt :(");
+                    });
             } else {
-                // Android & PC
-                window.addEventListener('deviceorientation', handleOrientation);
+                window.addEventListener('deviceorientation', e => {
+                    input.x = (e.beta || 0) / 45;
+                    input.y = (e.gamma || 0) / 45;
+                });
                 startGame();
             }
         }
 
-        function handleOrientation(e) {
-            // Werte für Landscape Modus anpassen
-            // Achtung: Je nach Handy-Haltung können Beta/Gamma tauschen. 
-            // Hier einfache Implementation.
-            deviceInput.beta = e.beta || 0;
-            deviceInput.gamma = e.gamma || 0;
-        }
-
-        // --- 4. SPIEL LOGIK ---
         function startGame() {
             document.getElementById('menu-screen').style.display = 'none';
+            document.getElementById('low-oxygen-overlay').style.display = 'none';
             oxygen = CONFIG.gameConfig.maxOxygen;
             score = 0;
-            fishCount = 0;
-            isTurbo = false;
-            
-            // Spieler Reset
-            player.position.set(0, -2, 10);
-            player.rotation.set(0, 0, 0);
-
-            spawnFishes();
-            
             isPlaying = true;
-            clock.start();
+            playerGroup.position.set(0, -1, 10);
+            playerGroup.rotation.set(0,0,0);
+            spawnEntities();
         }
 
-        function stopGame(win) {
+        function gameOver(win) {
             isPlaying = false;
+            document.getElementById('low-oxygen-overlay').style.display = 'none';
             const menu = document.getElementById('menu-screen');
-            const title = document.getElementById('menu-title');
-            const msg = document.getElementById('menu-msg');
-            const btn = document.getElementById('start-btn');
-
             menu.style.display = 'flex';
+            const h1 = menu.querySelector('h1');
+            const h2 = menu.querySelector('h2');
+            const btn = document.getElementById('start-btn');
             
-            if (win) {
-                title.innerText = "ERFOLG!";
-                title.style.color = "#00ff00";
-                msg.innerHTML = `Du bist sicher aufgetaucht.<br>Gefangen: ${fishCount}<br>Punkte: ${score}`;
+            if(win) {
+                h1.innerText = "MISSION ERFÜLLT";
+                h1.style.color = "#00ffaa";
+                h2.innerText = `Beute: ${score} Punkte`;
             } else {
-                title.innerText = "ERTRUNKEN!";
-                title.style.color = "#ff0000";
-                msg.innerHTML = `Die Luft ist ausgegangen.<br>Alle Fische verloren.`;
+                h1.innerText = "MISSION GESCHEITERT";
+                h1.style.color = "#ff3333";
+                h2.innerText = "Sauerstoff leer";
             }
-            btn.innerText = "NOCHMAL";
+            btn.innerText = "NEUSTART";
         }
 
         function update(dt) {
-            if (!isPlaying) return;
+            if(!isPlaying) return;
 
-            // --- Steuerung ---
-            // Beta (Kippen vorn/hinten) -> Rotation X (Hoch/Runter)
-            // Gamma (Kippen links/rechts) -> Rotation Y (Links/Rechts)
+            // 1. Steuerung (Responsive)
+            const targetRotX = input.x * 1.5;
+            const targetRotY = -input.y * 1.5;
             
-            // Dämpfung (Lerp) für weichere Bewegung
-            const targetRotX = (deviceInput.beta / 90) * 1.5; 
-            const targetRotY = -(deviceInput.gamma / 90) * 1.5;
+            playerGroup.rotation.x += (targetRotX - playerGroup.rotation.x) * 6 * dt; 
+            playerGroup.rotation.y += (targetRotY - playerGroup.rotation.y) * 6 * dt;
+            playerGroup.rotation.z = -input.y * 0.5;
 
-            player.rotation.x += (targetRotX - player.rotation.x) * 5 * dt;
-            player.rotation.y += (targetRotY - player.rotation.y) * 5 * dt;
+            // Speed Update
+            const speed = isTurbo ? 18 : 8;
+            playerGroup.translateZ(-speed * dt);
 
-            // Vorwärtsbewegung
-            const speed = isTurbo ? 15 : 7;
-            player.translateZ(-speed * dt);
+            // 2. Grenzen
+            depth = -playerGroup.position.y;
+            const maxD = CONFIG.gameConfig.maxDepth + 5;
+            if(playerGroup.position.y > 0.5) playerGroup.position.y = 0.5; 
+            if(playerGroup.position.y < -maxD) playerGroup.position.y = -maxD;
 
-            // Grenzen
-            if(player.position.y > 0.5) player.position.y = 0.5;
-            if(player.position.y < -90) player.position.y = -90;
+            // --- KAMERA VERFOLGUNG ---
+            const relativeCameraOffset = new THREE.Vector3(0, 3, 8);
+            const cameraOffset = relativeCameraOffset.applyMatrix4(playerGroup.matrixWorld);
+            camera.position.lerp(cameraOffset, 0.1);
+            camera.lookAt(playerGroup.position);
 
-            // --- Sauerstoff ---
+            // 3. Sauerstoff & Blasen
             let drain = CONFIG.gameConfig.depletionRate;
             if(isTurbo) drain += CONFIG.gameConfig.turboCost;
-            // Tiefer = mehr Verbrauch
-            drain += Math.abs(player.position.y * 0.05);
-
+            drain += (depth / CONFIG.gameConfig.maxDepth) * 2.5; 
+            
             oxygen -= drain * dt;
-            if(oxygen <= 0) stopGame(false);
+            if(oxygen > 100) oxygen = 100;
+            if(oxygen <= 0) gameOver(false);
 
-            // --- Kamera ---
-            // Kamera folgt sanft hinterher
-            const camOffset = new THREE.Vector3(0, 3, 8);
-            camOffset.applyMatrix4(player.matrixWorld);
-            camera.position.lerp(camOffset, 0.1);
-            camera.lookAt(player.position);
-
-            // --- Fische & Kollision ---
-            fishes.forEach(f => {
-                if(!f.active) return;
-
-                // Fische schwimmen einfach geradeaus
-                f.mesh.translateZ(f.speed * dt);
+            // Blasen Logic
+            bubbles.forEach(b => {
+                if(!b.active) return;
+                b.mesh.position.y += b.speed * dt;
+                if(b.mesh.position.y > 0) {
+                    b.mesh.position.y = -CONFIG.gameConfig.maxDepth;
+                    b.mesh.position.x = (Math.random()-0.5)*100;
+                    b.mesh.position.z = (Math.random()-0.5)*100;
+                }
                 
-                // Kollision
-                if(player.position.distanceTo(f.mesh.position) < 2.5) {
-                    f.active = false;
-                    f.mesh.visible = false;
-                    score += f.score;
-                    fishCount++;
-                    // Kleiner UI Effekt könnte hier hin
+                if(playerGroup.position.distanceTo(b.mesh.position) < 2.5) {
+                    b.active = false;
+                    b.mesh.visible = false;
+                    oxygen += 20; 
+                    setTimeout(() => { b.active = true; b.mesh.visible = true; b.mesh.position.y = -CONFIG.gameConfig.maxDepth; }, 5000);
                 }
             });
 
-            // --- Win Condition (Rückkehr zum Boot) ---
-            if(player.position.y > -1 && player.position.distanceTo(new THREE.Vector3(0,0,0)) < 8) {
-                if(fishCount > 0) stopGame(true);
+            // 4. Fisch Kollisionen
+            fishes.forEach(f => {
+                if(!f.active) return;
+                f.mesh.translateZ(f.type.speed * dt);
+                
+                if(playerGroup.position.distanceTo(f.mesh.position) < (1.5 + f.type.scale)) {
+                    f.active = false;
+                    f.mesh.visible = false;
+                    score += f.type.score;
+                }
+            });
+
+            // 5. Win Condition
+            if(playerGroup.position.y > -0.5 && playerGroup.position.distanceTo(new THREE.Vector3(0,0,0)) < 8 && score > 0) {
+                gameOver(true);
             }
 
-            // --- UI Update ---
-            document.getElementById('oxygen-bar').style.height = Math.max(0, oxygen) + "%";
-            document.getElementById('score-board').innerText = `Fische: ${fishCount} | Score: ${score}`;
+            // 6. UI & Warnung
+            const bar = document.getElementById('oxygen-bar');
+            bar.style.height = Math.max(0, oxygen) + '%';
+            document.getElementById('score-display').innerText = `SCORE: ${score}`;
+            document.getElementById('depth-display').innerText = `TIEFE: ${Math.max(0, depth).toFixed(1)}m`;
+
+            const warn = document.getElementById('low-oxygen-overlay');
+            if(oxygen < 30) {
+                warn.style.display = 'block';
+                bar.style.background = '#ff0000';
+            } else {
+                warn.style.display = 'none';
+                bar.style.background = 'linear-gradient(to top, #ff3333 0%, #ffaa00 40%, #00ffaa 100%)';
+            }
         }
 
         function animate() {
             requestAnimationFrame(animate);
-            const dt = clock.getDelta();
-            update(dt);
+            update(clock.getDelta());
             renderer.render(scene, camera);
-        }
-
-        function onResize() {
-            camera.aspect = window.innerWidth / window.innerHeight;
-            camera.updateProjectionMatrix();
-            renderer.setSize(window.innerWidth, window.innerHeight);
         }
     </script>
 </body>
