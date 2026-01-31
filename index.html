@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Deep Dive: Gyro Hunter</title>
+    <style>
+        body { margin: 0; overflow: hidden; font-family: 'Courier New', Courier, monospace; }
+        #ui-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
+        
+        /* HUD Elemente */
+        #score-board { position: absolute; top: 20px; left: 20px; color: white; font-size: 24px; font-weight: bold; text-shadow: 2px 2px 0 #000; }
+        #oxygen-container { position: absolute; left: 20px; bottom: 20px; width: 30px; height: 200px; border: 2px solid white; background: rgba(0,0,0,0.5); }
+        #oxygen-bar { width: 100%; height: 100%; background: linear-gradient(to top, red, yellow, cyan); transform-origin: bottom; transition: height 0.2s; }
+        #oxygen-label { position: absolute; left: 60px; bottom: 20px; color: cyan; font-weight: bold; text-shadow: 1px 1px 0 #000;}
+
+        /* Start Screen */
+        #start-screen { 
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%; 
+            background: rgba(0, 20, 50, 0.9); display: flex; flex-direction: column; 
+            align-items: center; justify-content: center; color: white; pointer-events: auto; z-index: 10;
+        }
+        button { padding: 15px 30px; font-size: 20px; cursor: pointer; background: #00d2ff; border: none; border-radius: 5px; font-weight: bold; margin-top: 20px;}
+        .msg { max-width: 80%; text-align: center; line-height: 1.5; }
+    </style>
+</head>
+<body>
+
+    <div id="ui-layer">
+        <div id="score-board">Fische: 0 | Score: 0</div>
+        <div id="oxygen-container"><div id="oxygen-bar"></div></div>
+        <div id="oxygen-label">O₂</div>
+    </div>
+
+    <div id="start-screen">
+        <h1>DEEP DIVE</h1>
+        <p class="msg">Neige dein Handy zum Steuern.<br>Tippe & Halte für Turbo.<br>Kehre zum Boot zurück bevor O₂ leer ist!</p>
+        <button id="start-btn">TAUCHGANG STARTEN</button>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+    <script>
+        // --- KONFIGURATION (Aus dem JSON Konzept) ---
+        const GameConfig = {
+            maxOxygen: 100,
+            depletionRate: 8.0, // O2 pro Sekunde
+            turboCost: 20.0,
+            fishCount: 30
+        };
+
+        const FishTypes = [
+            { color: 0xff7f50, score: 10, scale: 0.5 }, // Klein (Orange)
+            { color: 0xffd700, score: 50, scale: 0.8 }, // Mittel (Gold)
+            { color: 0xff00ff, score: 100, scale: 1.2 } // Groß (Lila)
+        ];
+
+        // --- GLOBALE VARIABLEN ---
+        let scene, camera, renderer;
+        let player, boat, waterSurface;
+        let fishes = [];
+        let isPlaying = false;
+        let oxygen = 100;
+        let score = 0;
+        let collectedFish = 0;
+        let clock = new THREE.Clock();
+        
+        // Steuerung
+        let deviceInput = { beta: 0, gamma: 0 }; // Handy Neigung
+        let isTurbo = false;
+
+        // --- INIT ---
+        function init() {
+            // Szene
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x001e36); // Tiefblau
+            scene.fog = new THREE.FogExp2(0x001e36, 0.02); // Unterwasser Nebel
+
+            // Kamera (3rd Person Setup wird in update gemacht)
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+
+            // Renderer
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            document.body.appendChild(renderer.domElement);
+
+            // Licht
+            const light = new THREE.DirectionalLight(0xffffff, 1);
+            light.position.set(0, 50, 0);
+            scene.add(light);
+            const ambient = new THREE.AmbientLight(0x404040); // Soft white light
+            scene.add(ambient);
+
+            createWorld();
+            
+            // Event Listeners
+            window.addEventListener('resize', onWindowResize, false);
+            
+            // Touch für Turbo
+            window.addEventListener('touchstart', () => isTurbo = true);
+            window.addEventListener('touchend', () => isTurbo = false);
+            window.addEventListener('mousedown', () => isTurbo = true);
+            window.addEventListener('mouseup', () => isTurbo = false);
+
+            // Desktop Fallback (Maus statt Gyro)
+            window.addEventListener('mousemove', (e) => {
+                if(!isPlaying) return;
+                // Simuliere Gyro Werte basierend auf Mausposition
+                // Gamma (Links/Rechts): -45 bis 45
+                // Beta (Hoch/Runter): -45 bis 45
+                const xPct = (e.clientX / window.innerWidth) * 2 - 1;
+                const yPct = (e.clientY / window.innerHeight) * 2 - 1;
+                deviceInput.gamma = xPct * 45; 
+                deviceInput.beta = yPct * 45;
+            });
+
+            animate();
+        }
+
+        function createWorld() {
+            // 1. Das Boot (Zielzone)
+            const boatGeo = new THREE.BoxGeometry(4, 1, 8);
+            const boatMat = new THREE.MeshLambertMaterial({ color: 0x8B4513 });
+            boat = new THREE.Mesh(boatGeo, boatMat);
+            boat.position.set(0, 0.5, 0);
+            scene.add(boat);
+
+            // Marker für Boot unter Wasser (damit man es findet)
+            const anchorGeo = new THREE.CylinderGeometry(0.1, 0.1, 50);
+            const anchorMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.3 });
+            const anchor = new THREE.Mesh(anchorGeo, anchorMat);
+            anchor.position.set(0, -25, 0);
+            scene.add(anchor);
+
+            // 2. Wasseroberfläche
+            const waterGeo = new THREE.PlaneGeometry(200, 200);
+            const waterMat = new THREE.MeshBasicMaterial({ color: 0x0044ff, transparent: true, opacity: 0.4, side: THREE.DoubleSide });
+            waterSurface = new THREE.Mesh(waterGeo, waterMat);
+            waterSurface.rotation.x = -Math.PI / 2;
+            scene.add(waterSurface);
+
+            // 3. Der Spieler (Taucher)
+            const playerGeo = new THREE.ConeGeometry(0.5, 2, 8); // Sieht aus wie ein Pfeil
+            playerGeo.rotateX(Math.PI / 2); // Spitze nach vorne
+            const playerMat = new THREE.MeshLambertMaterial({ color: 0x00ff00 });
+            player = new THREE.Mesh(playerGeo, playerMat);
+            player.position.set(0, -2, 5); // Start unter Wasser
+            scene.add(player);
+
+            spawnFishes();
+        }
+
+        function spawnFishes() {
+            // Alte Fische löschen falls Reset
+            fishes.forEach(f => scene.remove(f.mesh));
+            fishes = [];
+
+            for(let i=0; i<GameConfig.fishCount; i++) {
+                // Zufälliger Fischtyp
+                const type = FishTypes[Math.floor(Math.random() * FishTypes.length)];
+                
+                const geo = new THREE.BoxGeometry(type.scale, type.scale/2, type.scale);
+                const mat = new THREE.MeshLambertMaterial({ color: type.color });
+                const mesh = new THREE.Mesh(geo, mat);
+
+                // Zufällige Position (Unter Wasser)
+                mesh.position.x = (Math.random() - 0.5) * 80;
+                mesh.position.y = -Math.random() * 40 - 2; // Tiefe 2 bis 42
+                mesh.position.z = (Math.random() - 0.5) * 80;
+
+                // Zufällige Rotation
+                mesh.rotation.y = Math.random() * Math.PI * 2;
+
+                scene.add(mesh);
+                fishes.push({ mesh: mesh, type: type, active: true });
+            }
+        }
+
+        // --- GYRO SETUP ---
+        function requestGyro() {
+            if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+                // iOS 13+
+                DeviceOrientationEvent.requestPermission()
+                    .then(response => {
+                        if (response === 'granted') {
+                            window.addEventListener('deviceorientation', handleOrientation);
+                            startGame();
+                        } else {
+                            alert("Gyro wird benötigt!");
+                        }
+                    })
+                    .catch(console.error);
+            } else {
+                // Android / Ältere Geräte / Desktop
+                window.addEventListener('deviceorientation', handleOrientation);
+                startGame();
+            }
+        }
+
+        function handleOrientation(event) {
+            // Wir begrenzen die Werte etwas
+            deviceInput.beta = event.beta || 0;   // Vor/Zurück (-180 bis 180)
+            deviceInput.gamma = event.gamma || 0; // Links/Rechts (-90 bis 90)
+        }
+
+        // --- GAME LOGIC ---
+        function startGame() {
+            document.getElementById('start-screen').style.display = 'none';
+            oxygen = GameConfig.maxOxygen;
+            score = 0;
+            collectedFish = 0;
+            updateUI();
+            
+            // Reset Position
+            player.position.set(0, -1, 5);
+            player.rotation.set(0,0,0);
+            
+            spawnFishes();
+            isPlaying = true;
+            clock.start();
+        }
+
+        function endGame(reason) {
+            isPlaying = false;
+            const screen = document.getElementById('start-screen');
+            screen.style.display = 'flex';
+            const h1 = screen.querySelector('h1');
+            const msg = screen.querySelector('.msg');
+            const btn = document.getElementById('start-btn');
+
+            if(reason === 'win') {
+                h1.innerText = "ERFOLGREICH!";
+                h1.style.color = "lime";
+                msg.innerText = `Du hast ${collectedFish} Fische gefangen.\nGesamtpunkte: ${score}`;
+            } else {
+                h1.innerText = "GAME OVER";
+                h1.style.color = "red";
+                msg.innerText = "Der Sauerstoff ist ausgegangen.\nAlle Fische verloren.";
+            }
+            btn.innerText = "NOCHMAL";
+        }
+
+        function update(dt) {
+            if(!isPlaying) return;
+
+            // 1. Bewegung des Spielers (Basis Speed + Turbo)
+            const speed = isTurbo ? 12.0 : 5.0;
+            
+            // Rotation anwenden (Gyro Input glätten)
+            // Beta (Tilt Front/Back) steuert Pitch (X-Achse)
+            // Gamma (Tilt Left/Right) steuert Yaw (Y-Achse)
+            
+            // Desktop-Maus und Gyro nutzen ähnliche Wertebereiche
+            // Wir mappen die Neigung (z.B. 45 Grad) auf Rotationsgeschwindigkeit
+            
+            const targetRotX = (deviceInput.beta / 90) * 1.5; 
+            const targetRotY = -(deviceInput.gamma / 90) * 1.5;
+
+            player.rotation.x += (targetRotX - player.rotation.x) * 5 * dt;
+            player.rotation.y += (targetRotY - player.rotation.y) * 5 * dt;
+            
+            // Vorwärts bewegen (in Blickrichtung)
+            player.translateZ(-speed * dt);
+
+            // Grenzen (Boden und Oberfläche)
+            if(player.position.y > 0.5) player.position.y = 0.5; // Nicht fliegen
+            if(player.position.y < -48) player.position.y = -48; // Boden
+
+            // 2. Kamera folgt Spieler (3rd Person)
+            // Einfacher "Chase Camera" Algorithmus
+            const relativeCameraOffset = new THREE.Vector3(0, 2, 6); // Hinter dem Spieler
+            const cameraOffset = relativeCameraOffset.applyMatrix4(player.matrixWorld);
+            
+            camera.position.lerp(cameraOffset, 0.1); // Weiches Folgen
+            camera.lookAt(player.position);
+
+            // 3. Sauerstoff
+            let depletion = GameConfig.depletionRate;
+            if(isTurbo) depletion += GameConfig.turboCost;
+            
+            // Tiefe erhöht Verbrauch leicht
+            depletion += Math.abs(player.position.y) * 0.1;
+
+            oxygen -= depletion * dt;
+            if(oxygen <= 0) {
+                oxygen = 0;
+                endGame('die');
+            }
+
+            // 4. Kollision mit Fischen
+            fishes.forEach(f => {
+                if(f.active) {
+                    // Fische bewegen sich leicht
+                    f.mesh.translateZ(0.5 * dt); 
+                    
+                    if(player.position.distanceTo(f.mesh.position) < 2.0) {
+                        // Gefangen!
+                        f.active = false;
+                        f.mesh.visible = false;
+                        score += f.type.score;
+                        collectedFish++;
+                        // Kleiner Bounce Effekt beim Fangen könnte hier hin
+                    }
+                }
+            });
+
+            // 5. Check: Zurück am Boot?
+            // Wenn an der Oberfläche und nahe (0,0,0)
+            if(player.position.y > -0.5 && player.position.distanceTo(new THREE.Vector3(0,0,0)) < 6) {
+                if(collectedFish > 0) {
+                    endGame('win');
+                }
+            }
+
+            updateUI();
+        }
+
+        function updateUI() {
+            document.getElementById('oxygen-bar').style.height = oxygen + '%';
+            document.getElementById('score-board').innerText = `Fische: ${collectedFish} | Score: ${score}`;
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            const dt = clock.getDelta();
+            update(dt);
+            renderer.render(scene, camera);
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        // Button Event
+        document.getElementById('start-btn').addEventListener('click', requestGyro);
+
+        // Start init
+        init();
+
+    </script>
+</body>
+</html>
