@@ -1,0 +1,16 @@
+{
+  "name": "Deep Dive Gyro",
+  "short_name": "DeepDive",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#001e36",
+  "theme_color": "#001e36",
+  "orientation": "landscape",
+  "icons": [
+    {
+      "src": "https://cdn-icons-png.flaticon.com/512/3065/3065849.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    }
+  ]
+}

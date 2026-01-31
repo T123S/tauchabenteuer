@@ -1,0 +1,13 @@
+{
+  "gameConfig": {
+    "maxOxygen": 100,
+    "depletionRate": 8.0,
+    "turboCost": 20.0,
+    "fishCount": 30
+  },
+  "fishTypes": [
+    { "color": 16744272, "score": 10, "scale": 0.5 }, 
+    { "color": 16766720, "score": 50, "scale": 0.8 }, 
+    { "color": 16711935, "score": 100, "scale": 1.2 } 
+  ]
+}
